@@ -14,12 +14,12 @@ class ClassNameGenerator extends GeneratorForAnnotation<Analyse> {
   ) {
     final visitor = ModelVisitor();
     element.visitChildren(visitor);
-    return "${visitor.className}";
+    return "${visitor.className}()..sayHi();";
   }
 }
 
 class ModelVisitor extends SimpleElementVisitor {
-  DartType className;
+  late DartType className;
 
   @override
   visitConstructorElement(ConstructorElement element) {

@@ -15,24 +15,33 @@ class AggregateBuilder extends Builder {
 
   @override
   Map<String, List<String>> get buildExtensions => {
-        r'$lib$': ['analysis.gen.txt'],
+        r'$lib$': ['main.dart'],
       };
 
   @override
   FutureOr<void> build(BuildStep buildStep) async {
     outputBuffer.clear();
-    _addGeneratedCodeAlert(outputBuffer);
-    await _createContentForEachFileInScope(buildStep);
-    return _writeToSingleAsset(buildStep);
+    final files = await _createContentForEachFileInScope(buildStep);
+    return _writeToSingleAsset(buildStep, files);
   }
 
-  Future<void> _createContentForEachFileInScope(BuildStep buildStep) async {
-    await for (final fileAsset in buildStep.findAssets(_fileScope)) {
-      await buildForFiles(fileAsset, buildStep, outputBuffer);
+  Future<List<String>> _createContentForEachFileInScope(
+      BuildStep buildStep) async {
+    List<String> files = [];
+    await for (final fileAsset in buildStep
+        .findAssets(_fileScope)
+        .where((asset) => asset.extension == '.dart')) {
+      if (await buildForFiles(fileAsset, buildStep, outputBuffer)) {
+        // fileAsset.path property is 'lib/foo/bar/char.dart'
+        // fileAsset.pathSegments art ['lib', 'foo', 'bar, 'char']
+        // remove first segment because we want create "import 'foo/bar/char.dart';"
+        files.add(fileAsset.pathSegments.sublist(1).join("/"));
+      }
     }
+    return files;
   }
 
-  void buildForFiles(
+  Future<bool> buildForFiles(
     AssetId inputId,
     BuildStep buildStep,
     StringBuffer outputBuffer,
@@ -40,13 +49,25 @@ class AggregateBuilder extends Builder {
     final library = await _getLibraryFor(inputId, buildStep);
     final output = await generator.generate(library, buildStep);
     outputBuffer.writeln(output);
+    return !(output?.isEmpty ?? true);
   }
 
-  FutureOr<void> _writeToSingleAsset(BuildStep buildStep) {
+  FutureOr<void> _writeToSingleAsset(
+      BuildStep buildStep, List<String> addedFiles) {
     try {
+      var str = """
+${addedFiles.map((path) => "import '${path}';").join("\n")}
+
+${_getAlertString()}
+
+void main() {
+  ${outputBuffer.toString()}
+}
+""";
+
       return buildStep.writeAsString(
         _getOutputAssetId(buildStep),
-        outputBuffer.toString(),
+        str,
       );
     } catch (exception) {
       print('unable to write file reason: $exception');
@@ -62,16 +83,18 @@ class AggregateBuilder extends Builder {
   AssetId _getOutputAssetId(BuildStep buildStep) {
     print('Package: ${buildStep.inputId.package}');
     print('Asset Path: ${buildStep.inputId.path}');
-    print('Set Path: ${p.join('lib', 'analysis.gen.txt')}');
+    print('Set Path: ${p.join('lib', 'main.dart')}');
     return AssetId(
       buildStep.inputId.package,
-      p.join('lib', 'analysis.gen.txt'),
+      p.join('lib', 'main.dart'),
     );
   }
 
-  void _addGeneratedCodeAlert(StringBuffer outputBuffer) {
-    outputBuffer.writeln("//*******************************************");
-    outputBuffer.writeln("// GENERATED CODE - DO NOT MODIFY BY HAND");
-    outputBuffer.writeln("//*******************************************");
+  String _getAlertString() {
+    return """
+//*******************************************
+// GENERATED CODE - DO NOT MODIFY BY HAND");
+//*******************************************
+""";
   }
 }
